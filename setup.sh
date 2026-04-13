@@ -39,6 +39,7 @@ fi
 
 echo "Build complete. Pushing changes to Github and Booting AaronOS..."
 git add .
+git commit -m "$1"
 git push -u origin main --force
 
 # Launch QEMU with hardware audio and the virtual drive
