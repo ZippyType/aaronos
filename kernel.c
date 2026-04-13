@@ -2,11 +2,11 @@
  * =============================================================================
  * AARONOS KERNEL - FULL MONOLITHIC BUILD 
  * =============================================================================
- * VERSION: 3.8.5-STABLE
+ * VERSION: 3.9.0-STABLE
  * ARCHITECTURE: x86 (i386)
  * DESCRIPTION: High-stability monolithic kernel with persistent storage hooks,
- * PIT-based audio engine, deep hardware monitoring, and comprehensive 
- * hardware interrupt handling.
+ * PIT-based audio engine, deep hardware monitoring, comprehensive 
+ * hardware interrupt handling, and an extended utility shell.
  * =============================================================================
  */
 
@@ -20,8 +20,8 @@
 /* ========================================================================== */
 
 #define KERNEL_NAME        "AaronOS"
-#define KERNEL_VERSION     "3.8.5-STABLE"
-#define KERNEL_BUILD       "2026-04-11-QEMU"
+#define KERNEL_VERSION     "3.9.0-STABLE"
+#define KERNEL_BUILD       "2026-04-13-QEMU/UTM"
 
 /* ========================================================================== */
 /* 2. HARDWARE MEMORY & PORTS                                                 */
@@ -43,13 +43,16 @@
 #define CMOS_ADDRESS       0x70
 #define CMOS_DATA          0x71
 
+/* Base Color Palettes */
 #define COLOR_DEFAULT      0x07 
 #define COLOR_SUCCESS      0x0A 
 #define COLOR_HELP         0x0B 
 #define COLOR_ALERT        0x0E 
 #define COLOR_PANIC        0x4F 
 #define COLOR_AUDIO        0x0D 
+#define COLOR_MATRIX       0x0A
 
+/* Audio Frequencies */
 #define NOTE_C4            261
 #define NOTE_D4            294
 #define NOTE_E4            329
@@ -59,8 +62,8 @@
 #define NOTE_B4            493
 #define NOTE_C5            523
 
-/* TUI stuff. */
-#define TUI_COLOR       0x1F  // White text on Blue background (Classic BIOS look)
+/* TUI Visual Elements */
+#define TUI_COLOR       0x1F  // White text on Blue background
 #define BOX_HLINE       0xCD  // ═
 #define BOX_VLINE       0xBA  // ║
 #define BOX_TL          0xC9  // ╔
@@ -68,6 +71,16 @@
 #define BOX_BL          0xC8  // ╚
 #define BOX_BR          0xBC  // ╝
 
+#define SCROLLBACK_LIMIT 100  // Number of lines stored in RAM
+#define SCREEN_HEIGHT 25
+#define SCREEN_WIDTH 80
+
+// The virtual screen: Stores character and color attribute
+// 100 lines of scrollback
+uint16_t terminal_buffer[100][80]; 
+int scroll_offset = 0;
+int current_row = 0;
+int current_col = 0;
 /* ========================================================================== */
 /* 3. FORWARD DECLARATIONS                                                    */
 /* ========================================================================== */
@@ -79,26 +92,95 @@ void update_cursor();
 void clear_screen();
 void print(const char* str);
 void print_col(const char* str, uint8_t col);
+void putchar_col(char c, uint8_t color);
+void putchar_at(char c, uint8_t color, int x, int y);
+void print_at(const char* str, uint8_t color, int x, int y);
 void kpanic(const char* message);
 void sys_reboot();
 void init_timer(uint32_t frequency);
+void refresh_screen();
 void read_rtc();
 void process_shell();
+void show_credits();
+void run_matrix();
+void print_stats();
+void update_cursor_relative();
 
-/* --- Global Hardware State --- */
+void scroll_up() {
+    if (scroll_offset > 0) {
+        scroll_offset--;
+        refresh_screen();
+    }
+}
+
+void scroll_down() {
+    // 100 is your buffer limit, 25 is screen height
+    if (scroll_offset < (100 - 25)) {
+        // Only scroll down if we aren't past where we've actually typed
+        if (scroll_offset < current_row) {
+            scroll_offset++;
+            refresh_screen();
+        }
+    }
+}
+
+/* ========================================================================== */
+/* 4. GLOBAL HARDWARE & SYSTEM STATE                                          */
+/* ========================================================================== */
+
 volatile uint32_t timer_ticks = 0; 
+uint8_t current_term_color = COLOR_DEFAULT; // Global terminal color
 
 void timer_callback() {
     timer_ticks++;
+}
+void refresh_screen() {
+    uint16_t* vga = (uint16_t*)0xB8000;
+    
+    for (int y = 0; y < 25; y++) { // Physical screen height
+        for (int x = 0; x < 80; x++) { // Physical screen width
+            
+            // Calculate which line in the terminal_buffer we are looking at
+            int buffer_line = y + scroll_offset;
+            
+            // Safety check: don't read past the end of our 100-line buffer
+            if (buffer_line < 100) {
+                vga[y * 80 + x] = terminal_buffer[buffer_line][x];
+            } else {
+                vga[y * 80 + x] = ' ' | (0x07 << 8); // Clear space if out of bounds
+            }
+        }
+    }
+    update_cursor_relative();
+}
+
+void update_cursor_relative() {
+    // scroll_offset is the line at the very top of the screen
+    // current_row is the line where the next character will be typed
+    int visual_row = current_row - scroll_offset;
+
+    // Only show the cursor if the typing line is actually on the screen
+    if (visual_row >= 0 && visual_row < 25) {
+        uint16_t pos = (visual_row * 80) + current_col;
+
+        // Standard VGA cursor port communication
+        outb(0x3D4, 0x0F);
+        outb(0x3D5, (uint8_t)(pos & 0xFF));
+        outb(0x3D4, 0x0E);
+        outb(0x3D5, (uint8_t)((pos >> 8) & 0xFF));
+    } else {
+        // Hide the cursor by moving it off-screen if we scrolled away from the prompt
+        uint16_t pos = 25 * 80; 
+        outb(0x3D4, 0x0F);
+        outb(0x3D5, (uint8_t)(pos & 0xFF));
+        outb(0x3D4, 0x0E);
+        outb(0x3D5, (uint8_t)((pos >> 8) & 0xFF));
+    }
 }
 
 /* --- Timezone Configuration --- */
 int current_offset = 2; 
 char current_tz_name[32] = "Amsterdam (CEST)";
-
-/* ========================================================================== */
-/* 4. KERNEL DATA STRUCTURES                                                  */
-/* ========================================================================== */
 
 typedef struct {
     uint32_t uptime_ticks;
@@ -125,7 +207,8 @@ int prompt_limit = 0;
 char input_buffer[256];             
 int input_ptr = 0;                  
 volatile int execute_flag = 0;      
-int in_gui_mode = 0; // Tracks if we are in TUI mode
+int in_gui_mode = 0; 
+
 kernel_health_t sys_stats;
 rtc_time_t system_time;
 
@@ -164,6 +247,24 @@ int katoi(const char* str) {
     return res * sign;
 }
 
+int katohex(const char* str) {
+    int res = 0;
+    int i = 0;
+    if (str[0] == '0' && (str[1] == 'x' || str[1] == 'X')) i = 2;
+    for (; str[i] != '\0'; ++i) {
+        if (str[i] >= '0' && str[i] <= '9') {
+            res = res * 16 + (str[i] - '0');
+        } else if (str[i] >= 'a' && str[i] <= 'f') {
+            res = res * 16 + (str[i] - 'a' + 10);
+        } else if (str[i] >= 'A' && str[i] <= 'F') {
+            res = res * 16 + (str[i] - 'A' + 10);
+        } else {
+            break;
+        }
+    }
+    return res;
+}
+
 size_t kstrlen(const char* str) {
     size_t len = 0;
     while (str[len]) len++;
@@ -175,6 +276,15 @@ void kstrcpy(char* dest, const char* src) {
         *dest++ = *src++;
     }
     *dest = '\0';
+}
+
+char* kstrchr(const char *s, int c) {
+    while (*s != (char)c) {
+        if (!*s++) {
+            return NULL;
+        }
+    }
+    return (char *)s;
 }
 
 void reverse(char str[], int length) {
@@ -288,7 +398,7 @@ void scroll() {
             video_mem[i] = video_mem[i + SCREEN_WIDTH];
         }
         for (int i = (SCREEN_HEIGHT - 1) * SCREEN_WIDTH; i < SCREEN_HEIGHT * SCREEN_WIDTH; i++) {
-            video_mem[i] = (uint16_t)' ' | (COLOR_DEFAULT << 8);
+            video_mem[i] = (uint16_t)' ' | (current_term_color << 8);
         }
         cursor_y = SCREEN_HEIGHT - 1;
     }
@@ -314,13 +424,17 @@ void putchar_col(char c, uint8_t color) {
     } else {
         video_mem[cursor_y * SCREEN_WIDTH + cursor_x] = (uint16_t)c | (color << 8);
         cursor_x++;
+        if (cursor_x >= SCREEN_WIDTH) {
+            cursor_x = 0;
+            cursor_y++;
+        }
     }
     scroll();
     update_cursor();
 }
 
 void print(const char* str) {
-    for (int i = 0; str[i]; i++) putchar_col(str[i], COLOR_DEFAULT);
+    for (int i = 0; str[i]; i++) putchar_col(str[i], current_term_color);
 }
 
 void print_col(const char* str, uint8_t col) {
@@ -329,7 +443,7 @@ void print_col(const char* str, uint8_t col) {
 
 void clear_screen() {
     for (int i = 0; i < SCREEN_WIDTH * SCREEN_HEIGHT; i++) {
-        video_mem[i] = (uint16_t)' ' | (COLOR_DEFAULT << 8);
+        video_mem[i] = (uint16_t)' ' | (current_term_color << 8);
     }
     cursor_x = 0; cursor_y = 0;
     update_cursor();
@@ -409,7 +523,7 @@ void boot_jingle() {
 }
 
 /* ========================================================================== */
-/* 9. SYSTEM RECOVERY                                                         */
+/* 9. SYSTEM RECOVERY & DIAGNOSTICS                                           */
 /* ========================================================================== */
 
 void kpanic(const char* message) {
@@ -436,14 +550,60 @@ void sys_reboot() {
     kpanic("REBOOT_PULSE_FAILED");
 }
 
+void print_stats() {
+    char buf[16];
+    print_col("--- AaronOS Engine Health ---\n", COLOR_HELP);
+    print("Uptime Ticks:   "); itoa(timer_ticks, buf, 10); print(buf);
+    print("\nCommands Run:   "); itoa(sys_stats.total_commands, buf, 10); print(buf);
+    print("\nSpeaker Status: "); print(sys_stats.speaker_state ? "ACTIVE" : "IDLE");
+    print("\nColor Pallet:   0x"); itoa(current_term_color, buf, 16); print(buf);
+    print("\n");
+}
+
 /* ========================================================================== */
-/* 10. THE SHELL INTERPRETER                                                  */
+/* 10. VISUALS & ENTERTAINMENT                                                */
+/* ========================================================================== */
+
+void show_credits() {
+    print_col("\n  _____                      ____   _____ \n", COLOR_HELP);
+    print_col(" |  _  | ___  ___  ___ ___  |    | |   __|\n", COLOR_HELP);
+    print_col(" |     || . ||  _|| . |   | |  |  ||__   |\n", COLOR_HELP);
+    print_col(" |__|__||_  ||_|  |___|_|_| |____/ |_____|\n", COLOR_HELP);
+    print_col("        |___|  BUILD: ", COLOR_HELP); 
+    print_col(KERNEL_BUILD, COLOR_HELP);
+    print_col("\n\n", COLOR_DEFAULT);
+    print(" Lead Developer: Aaron\n");
+    print(" Kernel Version: "); print(KERNEL_VERSION); print("\n");
+}
+
+void run_matrix() {
+    clear_screen();
+    for(int i = 0; i < 400; i++) {
+        int x = (timer_ticks * 7) % SCREEN_WIDTH; 
+        int y = (timer_ticks / 3) % SCREEN_HEIGHT;
+        char c = (timer_ticks % 94) + 33; 
+        putchar_at(c, COLOR_MATRIX, x, y);
+        sleep(1);
+        
+        /* Cleanup fading tail effect */
+        if (y > 0) putchar_at(' ', COLOR_MATRIX, x, y - 1);
+    }
+    clear_screen();
+}
+
+/* ========================================================================== */
+/* 11. THE SHELL INTERPRETER                                                  */
 /* ========================================================================== */
 
 extern void run_installation(); 
 extern void fat16_list_files();
 extern void fat16_cat(char* name);
 extern void fat16_write_to_test(char* content);
+/* FAT16 Mock additions for advanced file ops */
+extern void fat16_create_file(char* name);
+extern void fat16_delete_file(char* name);
+extern void fat16_rename_file(char* old_name, char* new_name);
+
 extern void keyboard_handler_asm();
 extern void timer_handler_asm();
 
@@ -457,63 +617,63 @@ void process_shell() {
         
         if (kstrcmp(input_buffer, "help") == 0) {
             print_col("--- AaronOS Command List ---\n", COLOR_HELP);
-            print("install  - Run HDD deployment\n");
-            print("reboot   - Warm restart\n");
-            print("shutdown - ACPI Power off\n");
-            print("ver      - Show system version\n");
-            print("time     - Display hardware clock\n");
-            print("tz [city]- Set timezone (e.g. tz amsterdam)\n");
-            print("cls      - Clear terminal window\n");
-            print("panic    - Test kernel crash\n");
-            print("beep [f] - Play tone (ex: beep 440)\n");
-            print("dir      - List disk contents\n");
-            print("cat [f]  - Read text file\n");
-            print("write [t]- Append text to disk\n");
-            print("echo [t] - Print text to screen\n");
-            print("cpu      - Show hardware vendor\n");
-            print("memo     - Makes a memo\n");
-            print("music    - Plays a bit of music\n");
-            print("siren    - Sounds a siren\n");
-            print("gui      - Switches to TUI (GUI like Windows(R) or MacOS(R))\n");
-            print("           Use CTRL-T to switch back to shell.\n");
+            print("install   - Run HDD deployment\n");
+            print("reboot    - Warm restart\n");
+            print("shutdown  - ACPI Power off\n");
+            print("ver       - Show system version\n");
+            print("time      - Display hardware clock\n");
+            print("tz [city] - Set timezone (e.g. tz amsterdam)\n");
+            print("cls       - Clear terminal window\n");
+            print("panic     - Test kernel crash\n");
+            print("beep [f]  - Play tone (ex: beep 440)\n");
+            print("dir       - List disk contents\n");
+            print("ls        - Enhanced colorized list\n");
+            print("cat [f]   - Read text file\n");
+            print("write [t] - Append text to disk\n");
+            print("touch [f] - Create an empty file\n");
+            print("rm [f]    - Delete a file\n");
+            print("rename    - Rename a file (syntax: rename old new)\n");
+            print("echo [t]  - Print text to screen\n");
+            print("cpu       - Show hardware vendor\n");
+            print("memo      - Makes a memo\n");
+            print("music     - Plays a bit of music\n");
+            print("siren     - Sounds a siren\n");
+            print("credits   - Show OS build information\n");
+            print("stats     - Show OS health and uptime\n");
+            print("rand      - Generate pseudo-random number\n");
+            print("matrix    - Enter the matrix\n");
+            print("color [h] - Change text color (hex, e.g. color 0A)\n");
+            print("calc      - Basic math (e.g. calc 5 + 10)\n");
+            print("gui       - Switches to TUI (CTRL-T to return)\n");
         }
         else if (kstrcmp(input_buffer, "gui") == 0) {
             in_gui_mode = 1;
-            // 1. Fill the background with a "Desktop Teal"
             for (int i = 0; i < SCREEN_WIDTH * SCREEN_HEIGHT; i++) {
-                video_mem[i] = (uint16_t)0xB1 | (0x30 << 8); // Dotted pattern for texture
+                video_mem[i] = (uint16_t)0xB1 | (0x30 << 8); 
             }
+            int win_w = 60, win_h = 15;
+            int start_x = (80 - win_w) / 2, start_y = (25 - win_h) / 2;
+            uint8_t win_col = 0x70; 
 
-            // 2. Define Window Dimensions
-            int win_w = 60;
-            int win_h = 15;
-            int start_x = (80 - win_w) / 2;
-            int start_y = (25 - win_h) / 2;
-            uint8_t win_col = 0x70; // Black text on Light Gray background
-
-            // 3. Draw the Shadow (Classic 90s look)
             for(int i = 1; i < win_h; i++) {
                 for(int j = 1; j < win_w; j++) {
-                    putchar_at(' ', 0x08, start_x + j + 1, start_y + i + 1); // Dark Gray shadow
+                    putchar_at(' ', 0x08, start_x + j + 1, start_y + i + 1); 
                 }
             }
 
-            // 4. Draw Window Body & Borders
             for(int i = 0; i < win_h; i++) {
                 for(int j = 0; j < win_w; j++) {
                     char c = ' ';
-                    if (i == 0 && j == 0) c = 0xC9; // ╔
-                    else if (i == 0 && j == win_w - 1) c = 0xBB; // ╗
-                    else if (i == win_h - 1 && j == 0) c = 0xC8; // ╚
-                    else if (i == win_h - 1 && j == win_w - 1) c = 0xBC; // ╝
-                    else if (i == 0 || i == win_h - 1) c = 0xCD; // ═
-                    else if (j == 0 || j == win_w - 1) c = 0xBA; // ║
+                    if (i == 0 && j == 0) c = 0xC9; 
+                    else if (i == 0 && j == win_w - 1) c = 0xBB; 
+                    else if (i == win_h - 1 && j == 0) c = 0xC8; 
+                    else if (i == win_h - 1 && j == win_w - 1) c = 0xBC; 
+                    else if (i == 0 || i == win_h - 1) c = 0xCD; 
+                    else if (j == 0 || j == win_w - 1) c = 0xBA; 
                     
                     putchar_at(c, win_col, start_x + j, start_y + i);
                 }
             }
-
-            // 5. Draw the Title Bar Content
             print_at(" AaronOS Explorer", win_col, start_x + 2, start_y);
         }
         else if (kstrcmp(input_buffer, "time") == 0) {
@@ -593,8 +753,32 @@ void process_shell() {
             print("Processor: "); print_col(vendor, COLOR_HELP);
         }
         else if (kstrcmp(input_buffer, "dir") == 0) fat16_list_files();
+        else if (kstrcmp(input_buffer, "ls") == 0) {
+            print_col("DIRECTORY LISTING:\n", COLOR_HELP);
+            fat16_list_files(); 
+        }
         else if (kstrncmp(input_buffer, "cat ", 4) == 0) fat16_cat(&input_buffer[4]);
         else if (kstrncmp(input_buffer, "write ", 6) == 0) fat16_write_to_test(&input_buffer[6]);
+        else if (kstrncmp(input_buffer, "touch ", 6) == 0) {
+            fat16_create_file(&input_buffer[6]);
+            print("File created successfully.");
+        }
+        else if (kstrncmp(input_buffer, "rm ", 3) == 0) {
+            fat16_delete_file(&input_buffer[3]);
+            print("File deleted successfully.");
+        }
+        else if (kstrncmp(input_buffer, "rename ", 7) == 0) {
+            char* args = &input_buffer[7];
+            char* space = kstrchr(args, ' ');
+            if (space) {
+                *space = '\0';
+                char* new_name = space + 1;
+                fat16_rename_file(args, new_name);
+                print("Rename requested.");
+            } else {
+                print("Syntax: rename [old] [new]");
+            }
+        }
         else if (kstrncmp(input_buffer, "echo ", 5) == 0) print(&input_buffer[5]);
         else if (kstrncmp(input_buffer, "memo ", 5) == 0) {
             fat16_write_to_test(&input_buffer[5]);
@@ -612,6 +796,61 @@ void process_shell() {
             uint32_t durations[] = {35, 35, 35, 35, 35, 35};
             play_song(notes, durations, 6);
         }
+        else if (kstrcmp(input_buffer, "credits") == 0) show_credits();
+        else if (kstrcmp(input_buffer, "stats") == 0) print_stats();
+        else if (kstrcmp(input_buffer, "rand") == 0) {
+            char buf[16];
+            uint8_t low = inb(0x40); 
+            uint8_t time_mix = get_rtc_register(0x00);
+            int pseudo_rand = (low ^ time_mix) + timer_ticks;
+            itoa(pseudo_rand, buf, 10);
+            print("Entropy Output: "); print(buf);
+        }
+        else if (kstrcmp(input_buffer, "matrix") == 0) run_matrix();
+        else if (kstrncmp(input_buffer, "color ", 6) == 0) {
+            int new_color = katohex(&input_buffer[6]);
+            if (new_color >= 0 && new_color <= 0xFF) {
+                current_term_color = (uint8_t)new_color;
+                print("Terminal color updated.");
+            } else {
+                print("Invalid color code. Use hex format (e.g. color 0A)");
+            }
+        }
+        else if (kstrncmp(input_buffer, "calc ", 5) == 0) {
+            char* expr = &input_buffer[5];
+            int a = 0, b = 0, res = 0;
+            char op = 0;
+            
+            int i = 0;
+            while(expr[i] == ' ') i++;
+            a = katoi(&expr[i]);
+            
+            while(expr[i] >= '0' && expr[i] <= '9') i++;
+            while(expr[i] == ' ') i++;
+            
+            if (expr[i] == '+' || expr[i] == '-' || expr[i] == '*' || expr[i] == '/') {
+                op = expr[i];
+                i++;
+                while(expr[i] == ' ') i++;
+                b = katoi(&expr[i]);
+                
+                if (op == '+') res = a + b;
+                else if (op == '-') res = a - b;
+                else if (op == '*') res = a * b;
+                else if (op == '/') {
+                    if (b != 0) res = a / b;
+                    else print("ERR: Div by 0");
+                }
+                
+                if (op != '/' || b != 0) {
+                    char buf[16];
+                    itoa(res, buf, 10);
+                    print("Result: "); print(buf);
+                }
+            } else {
+                print("Syntax: calc [a] [+|-|*|/] [b]");
+            }
+        }
         else {
             print("Unknown command. Type help for commands.");
         }
@@ -625,7 +864,7 @@ void process_shell() {
 }
 
 /* ========================================================================== */
-/* 11. SEGMENTATION & DESCRIPTORS                                             */
+/* 12. SEGMENTATION & DESCRIPTORS                                             */
 /* ========================================================================== */
 
 struct gdt_entry {
@@ -686,7 +925,7 @@ void init_idt() {
 }
 
 /* ========================================================================== */
-/* 12. KERNEL ENTRY POINT                                                     */
+/* 13. KERNEL ENTRY POINT                                                     */
 /* ========================================================================== */
 
 void kernel_main() {

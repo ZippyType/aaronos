@@ -5,6 +5,8 @@
 extern void print(const char* str);
 extern void putchar_col(char c, uint8_t color);
 extern void sys_reboot();
+extern void scroll_up();   // Logic to decrement scroll_offset and refresh
+extern void scroll_down(); // Logic to increment scroll_offset and refresh
 
 /* --- 2. SHARED SHELL STATE --- */
 extern char input_buffer[256];
@@ -24,6 +26,8 @@ unsigned char kbd_us[128] = {
 
 void keyboard_handler_main() {
     uint8_t scancode = inb(0x60);
+if (scancode == 0x48) { scroll_up(); goto finalize; }   // Up
+    if (scancode == 0x50) { scroll_down(); goto finalize; } // Down
 
     // --- CTRL Key Logic ---
     if (scancode == 0x1D) { ctrl_pressed = 1; goto finalize; }
