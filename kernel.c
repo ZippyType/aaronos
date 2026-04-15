@@ -942,6 +942,7 @@ void show_credits() {
     print_col("\n\n", COLOR_DEFAULT);
     print(" Lead Developer: Aaron\n");
     print(" Kernel Version: "); print(KERNEL_VERSION); print("\n");
+    print(" Github: github.com/ZippyType/AaronOS \n");
 }
 
 void run_matrix() {
