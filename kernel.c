@@ -1,3 +1,5 @@
+/**--- START OF FILE kernel.c ---
+
 /**
  * =============================================================================
  * AARONOS KERNEL - FULL MONOLITHIC BUILD 
@@ -6,19 +8,13 @@
  * ARCHITECTURE: x86 (i386)
  * DESCRIPTION: High-stability monolithic kernel with persistent storage hooks,
  * PIT-based audio engine, deep hardware monitoring, comprehensive 
- * hardware interrupt handling, an extended utility shell, and an advanced
- * 500-line scrollback virtual terminal.
- * 
- * NOTE: IO, FAT16, Keyboard, Memory, and Installer logic are isolated into 
- * respective modules. This file only contains kernel core routines, string/math 
- * utilities, terminal rendering, and the command interpreter.
+ * hardware interrupt handling, TUI Event system, and a 500-line scrollback terminal.
  * =============================================================================
  */
 
 #include <stdint.h>
 #include <stddef.h>
 
-/* Bring in the hardware IO and FAT16 structs from external files */
 #include "io.h"
 #include "fat16.h"
 
@@ -67,10 +63,6 @@
 #define NOTE_A4            440
 #define NOTE_B4            493
 #define NOTE_C5            523
-#define NOTE_D5            587
-#define NOTE_E5            659
-#define NOTE_F5            698
-#define NOTE_G5            784
 
 /* TUI Visual Elements */
 #define TUI_COLOR       0x1F  
@@ -368,6 +360,7 @@ void read_rtc() {
 /* ========================================================================== */
 
 void scroll_up() {
+    if (in_gui_mode) return; // Disable scrolling in GUI
     if (scroll_offset > 0) {
         scroll_offset--;
         refresh_screen();
@@ -375,6 +368,7 @@ void scroll_up() {
 }
 
 void scroll_down() {
+    if (in_gui_mode) return; // Disable scrolling in GUI
     // Cannot scroll down past where the bottom of the screen meets the current typing row
     if (scroll_offset < (MAX_SCROLLBACK - SCREEN_HEIGHT)) {
         if (scroll_offset < current_row - SCREEN_HEIGHT + 1) {
@@ -406,6 +400,8 @@ void auto_scroll() {
 }
 
 void refresh_screen() {
+    if (in_gui_mode) return; // Prevent CLI from overwriting GUI
+
     for (int y = 0; y < SCREEN_HEIGHT; y++) {
         for (int x = 0; x < SCREEN_WIDTH; x++) {
             int buffer_line = y + scroll_offset;
@@ -420,6 +416,14 @@ void refresh_screen() {
 }
 
 void update_cursor_relative() {
+    if (in_gui_mode) {
+        // Hide cursor off-screen while in GUI
+        uint16_t pos = SCREEN_HEIGHT * SCREEN_WIDTH; 
+        outb(0x3D4, 0x0F); outb(0x3D5, (uint8_t)(pos & 0xFF));
+        outb(0x3D4, 0x0E); outb(0x3D5, (uint8_t)((pos >> 8) & 0xFF));
+        return;
+    }
+
     // visual_row determines where the physical cursor blinks on the 80x25 screen
     int visual_row = current_row - scroll_offset;
     if (visual_row >= 0 && visual_row < SCREEN_HEIGHT) {
@@ -439,6 +443,8 @@ void update_cursor_relative() {
 }
 
 void putchar_col(char c, uint8_t color) {
+    if (in_gui_mode) return;
+
     if (c == '\n') {
         current_col = 0;
         current_row++;
@@ -578,6 +584,7 @@ void kpanic(const char* message) {
     current_col = 0; 
     current_row = 0; 
     scroll_offset = 0;
+    in_gui_mode = 0;
     
     print_at("CRITICAL_KERNEL_HALT (0xDEADBEEF)", COLOR_PANIC, 0, 0);
     print_at("The system has been halted to prevent hardware damage.", COLOR_PANIC, 0, 1);
@@ -620,7 +627,7 @@ void print_stats() {
 }
 
 /* ========================================================================== */
-/* 10. VISUALS & ENTERTAINMENT                                                */
+/* 10. VISUALS & ENTERTAINMENT (TUI EVENT SYSTEM)                             */
 /* ========================================================================== */
 
 void show_credits() {
@@ -652,9 +659,13 @@ void run_matrix() {
 
 void launch_tui() {
     in_gui_mode = 1;
+    update_cursor_relative(); // Hide cursor
+    
+    // Draw Background
     for (int i = 0; i < SCREEN_WIDTH * SCREEN_HEIGHT; i++) {
-        video_mem[i] = (uint16_t)0xB1 | (0x30 << 8); 
+        video_mem[i] = (uint16_t)0xB1 | (0x30 << 8); // Cyan pattern
     }
+    
     int win_w = 60, win_h = 15;
     int start_x = (80 - win_w) / 2, start_y = (25 - win_h) / 2;
     uint8_t win_col = 0x70; 
@@ -690,7 +701,25 @@ void launch_tui() {
     print_at(" SYSTEM.CFG          4 KB    CFG  ", win_col, start_x + 2, start_y + 5);
     print_at(" README.TXT          1 KB    TXT  ", win_col, start_x + 2, start_y + 6);
     
-    print_at(" [ Press CTRL-T to return to terminal ] ", win_col | 0x0E, start_x + 10, start_y + win_h - 2);
+    print_at(" [ Press ESC to return to terminal ] ", win_col | 0x0E, start_x + 10, start_y + win_h - 2);
+
+    // Event Loop for TUI Mode
+    while(in_gui_mode) {
+        if ((inb(0x64) & 1)) {
+            uint8_t scancode = inb(0x60);
+            if (scancode == 0x01) { // ESC key pressed
+                in_gui_mode = 0;
+            }
+        }
+    }
+
+    // Restore terminal output
+    execute_flag = 0; // Clear any pending keypresses that happened in GUI
+    input_ptr = 0;    // Clear buffer
+    refresh_screen(); // Redraw scrollback
+    print("\nAaronOS> ");
+    prompt_limit = current_col;
+    update_cursor_relative();
 }
 
 /* ========================================================================== */
@@ -743,6 +772,7 @@ void process_shell() {
         }
         else if (kstrcmp(input_buffer, "gui") == 0) {
             launch_tui();
+            return; // Exit shell processing immediately to avoid re-printing prompt below
         }
         else if (kstrcmp(input_buffer, "ver") == 0) {
             print_col(KERNEL_NAME, COLOR_SUCCESS); 
@@ -1028,6 +1058,7 @@ void kernel_main() {
     current_col = 0;
     current_row = 0;
     scroll_offset = 0;
+    in_gui_mode = 0;
     clear_screen();
     
     print_col("\n[ AaronOS Boot Sequence Initiated ]\n\n", COLOR_HELP);
