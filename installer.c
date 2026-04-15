@@ -1,4 +1,4 @@
-/*--- START OF FILE installer.c */
+
 
 #include <stdint.h>
 #include "io.h"
@@ -83,4 +83,3 @@ void run_installation() {
     nosound();
 }
 
-/* --- END OF FILE installer.c --- */
