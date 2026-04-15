@@ -5,6 +5,10 @@
 rm -f *.o kernel.elf aaron_os.iso hd.img
 echo "Cleaning up..."
 
+echo "Pushing to Github..."
+git add .
+git commit -m "$1"
+git push -u origin main --force
 # Assemble the bootloader
 nasm -f elf32 boot.s -o boot.o
 
@@ -37,10 +41,7 @@ if [ ! -f hd.img ]; then
     qemu-img create -f raw hd.img 10M
 fi
 
-echo "Build complete. Pushing changes to Github and Booting AaronOS..."
-git add .
-git commit -m "$1"
-git push -u origin main --force
+echo "Build complete. Booting AaronOS..."
 
 # Launch QEMU with hardware audio and the virtual drive
 qemu-system-x86_64 -cdrom aaron_os.iso -drive file=hd.img,format=raw -boot order=cd -m 256M -machine pc -audiodev pa,id=speaker -machine pcspk-audiodev=speaker
