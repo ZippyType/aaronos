@@ -742,7 +742,6 @@ void print_stats() {
 /* ========================================================================== */
 
 /* The base wallpaper and taskbars */
-// Inside your existing process_shell() function
 else if (kstrcmp(input_buffer, "gui") == 0) {
     // This calls your TUI GUI code directly from inside the kernel
     launch_tui(); 
