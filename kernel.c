@@ -135,11 +135,11 @@ char boot_logs[MAX_BOOT_LOGS][LOG_MSG_LEN];
 int boot_log_count = 0;
 
 /* TUI Engine State Machine */
-int in_gui_mode = 0;       // Flag preventing CLI from writing to screen when 1
-int tui_state = 0;         // 0=Main Menu, 1=Files, 2=SysMon, 3=About
-int tui_selected_item = 0; // Current highlighted menu item
-int tui_max_items = 0;     // Max items in current menu (for wrapping)
-int tui_needs_redraw = 1;  // Triggers a UI frame update to save CPU
+extern int in_gui_mode;
+extern int tui_state;
+extern int tui_selected_item;
+extern int tui_max_items;
+extern int tui_needs_redraw;
 
 /* Hardware Diagnostics & Stats Structs */
 typedef struct {
