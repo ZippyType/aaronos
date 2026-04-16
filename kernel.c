@@ -107,15 +107,27 @@
  * data (from font_data.h) directly into VGA Plane 2. 
  */
 void load_custom_font() {
-    outb(0x3C4, 0x00); outb(0x3C5, 0x01); // Stop Sequencer
-    outb(0x3C4, 0x02); outb(0x3C5, 0x04); // Write to plane 2
-    outb(0x3C4, 0x04); outb(0x3C5, 0x07); // Sequential addressing
-    outb(0x3C4, 0x00); outb(0x3C5, 0x03); // Start Sequencer
+    // 1. Disable screen output (Sequencer Index 0x01)
+    outb(0x3C4, 0x01);
+    outb(0x3C5, outb(0x3C5, 0x20)); // Set bit 5 to 1 (Synchronous Reset)
+
+    // 2. Unlock Sequencer to modify memory planes
+    outb(0x3C4, 0x02); outb(0x3C5, 0x04); // Write to plane 2 (Font Plane)
+    outb(0x3C4, 0x04); outb(0x3C5, 0x07); // Sequential addressing mode
     
+    // 3. Re-enable sequencer (Clear Reset)
+    outb(0x3C4, 0x01); outb(0x3C5, 0x00);
+
+    // 4. Copy the custom font data into Video Memory (Plane 2 starts at 0xA0000)
     uint8_t* font_plane = (uint8_t*)0xA0000;
     for(int i = 0; i < 4096; i++) {
         font_plane[i] = custom_font[i];
     }
+
+    // 5. Restore normal VGA operation
+    outb(0x3C4, 0x02); outb(0x3C5, 0x03); // Back to planes 0 & 1
+    outb(0x3C4, 0x04); outb(0x3C5, 0x02); // Standard addressing
+    outb(0x3C4, 0x01); outb(0x3C5, 0x00); // Enable screen
 }
 /* ========================================================================== */
 /* 2. KERNEL GLOBAL STATE                                                     */
