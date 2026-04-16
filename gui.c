@@ -2,12 +2,56 @@
 #include <stddef.h>
 #include "io.h"
 
-/* TUI Engine State Machine */
+/* --- KERNEL MACROS --- */
+#define SCREEN_WIDTH       80
+#define SCREEN_HEIGHT      25
+#define TUI_BG_COLOR       0x1F  
+#define TUI_WIN_COLOR      0x70  
+#define TUI_HL_COLOR       0x0F  
+#define TUI_BAR_COLOR      0x8F  
+#define BOX_HLINE          0xCD  
+#define BOX_VLINE          0xBA  
+#define BOX_TL             0xC9  
+#define BOX_TR             0xBB  
+#define BOX_BL             0xC8  
+#define BOX_BR             0xBC  
+
+/* --- KERNEL STRUCTS & EXTERNS --- */
+typedef struct {
+    uint8_t second; uint8_t minute; uint8_t hour;
+    uint8_t day; uint8_t month; uint32_t year;
+} rtc_time_t;
+
+extern rtc_time_t system_time;
+extern volatile uint32_t timer_ticks;
+extern uint16_t* video_mem;
+extern char input_buffer[256];
+extern int input_ptr;
+extern volatile int execute_flag;
+extern int current_col;
+extern int prompt_limit;
+
+/* --- KERNEL FUNCTIONS --- */
+void putchar_at(char c, uint8_t color, int x, int y);
+void print_at(const char* str, uint8_t color, int x, int y);
+void print(const char* str);
+void refresh_screen();
+void update_cursor_relative();
+void read_rtc();
+void sleep(uint32_t ticks);
+void itoa(int num, char* str, int base);
+size_t kstrlen(const char* str);
+
+/* ============================================== */
+/* TUI Engine State Machine                       */
+/* ============================================== */
 int in_gui_mode = 0;       
 int tui_state = 0;         
 int tui_selected_item = 0; 
 int tui_max_items = 0;     
 int tui_needs_redraw = 1;  
+
+// ... (Keep the rest of your gui.c functions below this) ...
 
 void tui_draw_desktop() {
     for (int i = 0; i < SCREEN_WIDTH * SCREEN_HEIGHT; i++) {

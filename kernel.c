@@ -741,13 +741,6 @@ void print_stats() {
 /* 10. AARON_OS EXPLORER: THE INTERACTIVE TUI ENGINE                          */
 /* ========================================================================== */
 
-/* The base wallpaper and taskbars */
-else if (kstrcmp(input_buffer, "gui") == 0) {
-    // This calls your TUI GUI code directly from inside the kernel
-    launch_tui(); 
-    return; // Prevents the shell from printing "AaronOS>" immediately after exit
-}
-
 /* ========================================================================== */
 /* 11. THE COMMAND INTERPRETER & CLI SHELL                                    */
 /* ========================================================================== */
