@@ -1,48 +1,53 @@
 #!/bin/bash
 
-# Clean up previous builds
-# We remove the old objects and binaries to ensure a fresh compile
-rm -f *.o kernel.elf aaron_os.iso hd.img
-echo "Cleaning up..."
+# 1. Commit Step
+echo "Checking for changes..."
+if [ -n "$(git status --porcelain)" ]; then
+    echo "Files are modified. If you want to commit, type your message. Otherwise, leave blank to skip:"
+    read commit_msg
+    if [ -n "$commit_msg" ]; then
+        git add .
+        git commit -m "$commit_msg"
+        git push -u origin main --force
+    else
+        echo "Skipping commit."
+    fi
+else
+    echo "No changes detected, skipping commit."
+fi
 
-echo "Pushing to Github..."
-git add .
-git commit -m "$1"
-git push -u origin main --force
-# Assemble the bootloader
+# 2. Clean and Build
+rm -f *.o kernel.elf aaron_os.iso
+echo "Compiling AaronOS..."
+
 nasm -f elf32 boot.s -o boot.o
-
-# Compile C files
-# Using -O2 for optimization and -ffreestanding since we have no standard library
 gcc -m32 -c keyboard.c -o keyboard.o -ffreestanding -O2 -fno-stack-protector
 gcc -m32 -c installer.c -o installer.o -ffreestanding -O2 -fno-stack-protector
 gcc -m32 -c editor.c -o editor.o -ffreestanding -O2 -fno-stack-protector
 gcc -m32 -c fat16.c -o fat16.o -ffreestanding -O2 -fno-stack-protector
 gcc -m32 -c memory.c -o memory.o -ffreestanding -O2 -fno-stack-protector
-gcc -m32 -c kernel.c -o kernel.o -ffreestanding -O2 -fno-stack-protector
 gcc -m32 -c gui.c -o gui.o -ffreestanding -O2 -fno-stack-protector
+gcc -m32 -c kernel.c -o kernel.o -ffreestanding -O2 -fno-stack-protector
 
+ld -m elf_i386 -T linker.ld -o kernel.elf boot.o keyboard.o installer.o editor.o fat16.o memory.o gui.o kernel.o --no-warn-rwx-segments
 
-# Link everything together
-# We include memory.o and fat16.o to ensure the new features are linked
-ld -m elf_i386 -T linker.ld -o kernel.elf boot.o keyboard.o installer.o editor.o fat16.o memory.o kernel.o gui.o --no-warn-rwx-segments
-
-# ISO creation
-# We assume your grub.cfg is already in the correct location (iso_root/boot/grub/grub.cfg) 
 mkdir -p iso_root/boot/grub
 cp kernel.elf iso_root/boot/
-
-echo "Creating ISO with existing grub.cfg..."
 grub-mkrescue -o aaron_os.iso iso_root
 
-# Virtual Drive creation
-# Create a 10MB raw disk image if it doesn't exist
-if [ ! -f hd.img ]; then 
-    echo "Creating virtual drive..."
-    qemu-img create -f raw hd.img 10M
+# 3. Draft Release Step
+echo "Build successful! Create a GitHub draft release? [y/N]"
+read release_choice
+if [[ "$release_choice" == [Yy]* ]]; then
+    echo "Enter release tag (e.g., v3.9.0):"
+    read tag
+    echo "Enter release title:"
+    read title
+    gh release create "$tag" aaron_os.iso --title "$title" --draft --notes "Stable Monolithic Build - April 2026"
+    echo "Draft release created on GitHub."
 fi
 
-echo "Build complete. Booting AaronOS..."
-
-# Launch QEMU with hardware audio and the virtual drive
+# 4. Boot
+if [ ! -f hd.img ]; then qemu-img create -f raw hd.img 10M; fi
+echo "Booting AaronOS..."
 qemu-system-x86_64 -cdrom aaron_os.iso -drive file=hd.img,format=raw -boot order=cd -m 256M -machine pc -audiodev pa,id=speaker -machine pcspk-audiodev=speaker
