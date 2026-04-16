@@ -1226,7 +1226,7 @@ void kernel_main() {
     // Final pause
     for(volatile int i=0; i<15000000; i++); 
     clear_screen();
-    load_custom_font()
+    load_custom_font();
     
     boot_jingle(); // Play startup sound
     print("Welcome to AaronOS! \n Use help for commands.\n");
