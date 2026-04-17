@@ -33,12 +33,13 @@ compile_file "fat16.c" "fat16.o"
 compile_file "memory.c" "memory.o"
 compile_file "gui.c" "gui.o"
 compile_file "kernel.c" "kernel.o"
+compile_file "net.c" "net.o"
 
 if [ -n "$ERRORS" ]; then
     echo "ABORT: Errors detected in: $ERRORS"; exit 1
 fi
 
-ld -m elf_i386 -T linker.ld -o kernel.elf boot.o keyboard.o installer.o editor.o fat16.o memory.o gui.o kernel.o --no-warn-rwx-segments
+ld -m elf_i386 -T linker.ld -o kernel.elf boot.o keyboard.o installer.o editor.o fat16.o memory.o gui.o kernel.o net.o --no-warn-rwx-segments
 mkdir -p iso_root/boot/grub
 cp kernel.elf iso_root/boot/
 grub-mkrescue -o aaron_os.iso iso_root
@@ -98,4 +99,4 @@ fi
 # Ensure QEMU only starts after the logic above is finished
 if [ ! -f hd.img ]; then qemu-img create -f raw hd.img 10M; fi
 echo "Finalizing... Starting AaronOS Emulator."
-qemu-system-x86_64 -cdrom aaron_os.iso -drive file=hd.img,format=raw -boot order=cd -m 256M -machine pc -audiodev pa,id=speaker -machine pcspk-audiodev=speaker
+qemu-system-x86_64 -cdrom aaron_os.iso -drive file=hd.img,format=raw -boot order=cd -m 256M -machine pc -audiodev pa,id=speaker -machine pcspk-audiodev=speaker -netdev user,id=n1 -device rtl8139,netdev=n1

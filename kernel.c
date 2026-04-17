@@ -924,6 +924,29 @@ void process_shell() {
             print("Generating Waveform: Siren"); uint32_t notes[] = {880, 440, 880, 440, 880, 440}; uint32_t durations[] = {35, 35, 35, 35, 35, 35};
             play_song(notes, durations, 6);
         }
+            // Add this to your shell commands:
+        else if (kstrcmp(input_buffer, "netstat") == 0) {
+            print_col("--- Network Interface Status ---\n", COLOR_HELP);
+            print("Driver: Realtek RTL8139 Fast Ethernet\n");
+            print("MAC Address: ");
+            for(int i=0; i<6; i++) {
+                char buf[3]; itoa(my_mac[i], buf, 16);
+                print(buf); if(i<5) print(":");
+            }
+            print("\nStatus: UP\n");
+        }
+        else if (kstrcmp(input_buffer, "ping") == 0) {
+            print("Sending Raw Broadcast Packet (Layer 2)...\n");
+            
+            // Broadcast MAC address (FF:FF:FF:FF:FF:FF)
+            uint8_t broadcast_mac[6] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+            
+            // Dummy payload ("PING")
+            uint8_t payload[] = {'P', 'I', 'N', 'G', '!', 0x00};
+            
+            // Send it using EtherType 0x0800 (IPv4)
+            net_send_raw_packet(broadcast_mac, 0x0800, payload, 6);
+        }
         else if (kstrcmp(input_buffer, "matrix") == 0) run_matrix();
         else print("Unknown command. Type help for commands.");
     }
@@ -985,8 +1008,46 @@ void init_idt() {
 }
 
 /* ========================================================================== */
-/* 13. KERNEL ENTRY POINT                                                     */
+/* 13. KERNEL ENTRY POINT AND NETWORK                                                    */
 /* ========================================================================== */
+
+extern void net_init(uint32_t io_base);
+extern void net_send_raw_packet(uint8_t* dest_mac, uint16_t protocol, uint8_t* payload, uint32_t payload_len);
+extern uint8_t my_mac[6]; // From net.c
+
+/* Reads a 16-bit value from the PCI configuration space */
+uint16_t pci_config_read_word(uint8_t bus, uint8_t slot, uint8_t func, uint8_t offset) {
+    uint32_t address = (uint32_t)((bus << 16) | (slot << 11) | (func << 8) | (offset & 0xfc) | 0x80000000);
+    outl(0xCF8, address);
+    return (uint16_t)((inl(0xCFC) >> ((offset & 2) * 8)) & 0xffff);
+}
+
+/* Scans all buses/slots for the Realtek 8139 */
+void pci_scan() {
+    print_col("[PCI] Scanning hardware bus...\n", COLOR_HELP);
+    for(int bus = 0; bus < 256; bus++) {
+        for(int slot = 0; slot < 32; slot++) {
+            uint16_t vendor = pci_config_read_word(bus, slot, 0, 0);
+            if(vendor != 0xFFFF) {
+                uint16_t device = pci_config_read_word(bus, slot, 0, 2);
+                // 0x10EC = Realtek, 0x8139 = RTL8139
+                if(vendor == 0x10EC && device == 0x8139) {
+                    print_col("[PCI] Found RTL8139 Network Card!\n", COLOR_SUCCESS);
+                    
+                    // Read Base Address Register 0 (BAR0)
+                    uint32_t bar0_low = pci_config_read_word(bus, slot, 0, 0x10);
+                    uint32_t bar0_high = pci_config_read_word(bus, slot, 0, 0x12);
+                    uint32_t bar0 = (bar0_high << 16) | bar0_low;
+                    
+                    // Strip the lowest 2 bits (I/O space flags) and pass to driver
+                    net_init(bar0 & ~0x3); 
+                    return;
+                }
+            }
+        }
+    }
+    print_col("[PCI] Network card not found.\n", COLOR_ALERT);
+}
 
 void kernel_main() {
     current_col = 0; current_row = 0; scroll_offset = 0; in_gui_mode = 0; boot_log_count = 0;
@@ -1011,9 +1072,10 @@ void kernel_main() {
     log_boot("VGA DMA Hook established at 0xB8000");
     log_boot("Math libraries (ksin, kcos, ksqrt) initialized");
     log_boot("TUI Graphics Engine Loaded");
+    log_boot("Network Driver Launched");
     
     // Pause to let user see boot checks
-    for(volatile int i=0; i<15000000; i++); 
+    for(volatile int i=0; i<30000000; i++); 
     
     asm volatile("sti"); // Start accepting hardware interrupts
     log_boot("Hardware Interrupts (STI) Enabled");
@@ -1022,6 +1084,7 @@ void kernel_main() {
     for(volatile int i=0; i<15000000; i++); 
     clear_screen();
     
+    pci_scan();
     boot_jingle(); // Play startup sound
     print("Welcome to AaronOS! \n Use help for commands.\n");
     print("AaronOS> ");
