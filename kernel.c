@@ -114,6 +114,7 @@ char input_buffer[256] = {0};        // Raw characters typed by user
 int input_ptr = 0;                  // Current position in the input buffer
 volatile int execute_flag = 0;      // Set to 1 when ENTER is pressed
 volatile int ctrl_c_flag = 0;       // Set to 1 when Ctrl+C is pressed
+int serial_initialized = 0;         // Flag for serial init status
 
 /* VGA Terminal State */
 // A massive 2D array storing both the character and its color data
@@ -610,7 +611,7 @@ void putchar_col(char c, uint8_t color) {
 void print(const char* str) {
     for (int i = 0; str[i]; i++) {
         putchar_col(str[i], current_term_color);
-        serial_putchar(str[i]);
+        if (serial_initialized && serial_is_transmit_empty()) serial_putchar(str[i]);
     }
 }
 
@@ -1074,11 +1075,13 @@ void pci_scan() {
 void kernel_main() {
     current_col = 0; current_row = 0; scroll_offset = 0; in_gui_mode = 0; boot_log_count = 0;
     clear_screen();
+    init_serial();
+    serial_initialized = 1;
     
     print_col("\n[ AaronOS Boot Sequence Initiated ]\n\n", COLOR_HELP);
 
     init_gdt(); log_boot("Global Descriptor Table (GDT) Configured");
-    init_serial(); log_boot("Serial Port (COM1) Initialized");
+    log_boot("Serial Port (COM1) Initialized");
 
     /* 8259 PIC Remapping Magic Numbers */
     outb(0x20, 0x11); io_wait(); outb(0x21, 0x20); io_wait(); outb(0x21, 0x04); io_wait(); outb(0x21, 0x01); io_wait();

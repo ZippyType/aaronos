@@ -62,3 +62,12 @@ Make sure chat.json is in the gitignore.
 - You may use/make subagents. Here is how to do it:
 1. ALWAYS READ " https://opencode.ai/docs/agents/ ". That is everything to know.
 2. Make the subagent (if you need to.) run ``` opencode agent list ``` to see all agents. Then make an agent if that is required with ``` opencode agent create ```. Follow all on-screen instructions.
+
+##  IMPORTANT
+- When you are done with a prompt/task, do the following:
+1. A check in the code to see if there are any errors:
+2. Run subagents if applicable:
+3. Run the code-checker subagent (required):
+4. test with qmeu and test compiling
+5. Ask user for github stuff
+6. End the message.
