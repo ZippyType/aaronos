@@ -17,6 +17,7 @@ You must follow this three-step process for every request:
 - Maintain high standards for C code within the kernel.
 - Ensure all newly added commands are registered in the internal help system.
 - Make sure all code and commands work in QMEU CLI (no x11 display) mode. It should be configured to ouput to a serial port too.
+
 ## After testing and code edits
 1. Ask the user if he wants to Commit changes to Github.
 2. If the user agrees, then write a commit message and tell the user the commit message.
@@ -33,6 +34,7 @@ Bash
 qemu-system-x86_64 -hda aaronos.img -nographic
 ```
 Note: To exit this mode, press Ctrl+A then X.)
+
 ## ABOUT THE CHAT
 - Always add the full chat history to chat.json.
 - Full chat history. Like this: 
@@ -55,8 +57,8 @@ Model {
  etc.
 }
 ```
-That is the way how to store chat.json.
-Make sure chat.json is in the gitignore.
+- That is the way how to store chat.json.
+- Make sure chat.json is in the gitignore.
 
 ## About subagents to make your job easier
 - You may use/make subagents. Here is how to do it:

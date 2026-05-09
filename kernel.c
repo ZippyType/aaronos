@@ -115,6 +115,7 @@ int input_ptr = 0;                  // Current position in the input buffer
 volatile int execute_flag = 0;      // Set to 1 when ENTER is pressed
 volatile int ctrl_c_flag = 0;       // Set to 1 when Ctrl+C is pressed
 int serial_initialized = 0;         // Flag for serial init status
+volatile int keyboard_interrupts = 0; // Debug counter
 
 /* VGA Terminal State */
 // A massive 2D array storing both the character and its color data
@@ -753,6 +754,7 @@ void print_stats() {
     print_col("\n--- AaronOS Engine Health ---\n", COLOR_HELP);
     print("Uptime Ticks:   "); itoa(timer_ticks, buf, 10); print(buf);
     print("\nCommands Run:   "); itoa(sys_stats.total_commands, buf, 10); print(buf);
+    print("\nKeyboard IRQ:   "); itoa(keyboard_interrupts, buf, 10); print(buf);
     print("\nSpeaker Status: "); print(sys_stats.speaker_state ? "ACTIVE" : "IDLE");
     print("\nColor Pallet:   0x"); itoa(current_term_color, buf, 16); print(buf);
     print("\nTerminal Size:  "); itoa(MAX_SCROLLBACK, buf, 10); print(buf); print(" lines capacity");
