@@ -57,7 +57,7 @@ int ata_write_sector(uint32_t lba, const uint8_t* buffer) {
     return 1;
 }
 
-void format_name(char* in, char* out) {
+static void format_name(char* in, char* out) {
     for(int i=0; i<8; i++) out[i] = ' ';
     for(int i=0; i<8 && in[i] != '\0' && in[i] != '.'; i++) out[i] = in[i];
 }

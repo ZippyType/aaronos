@@ -1,6 +1,6 @@
-*.iso
+.vscode
 *.o
 *.img
 *.log
 chat.json
-
+serial*

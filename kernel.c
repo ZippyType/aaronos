@@ -4,7 +4,7 @@
  * =============================================================================
  * AARONOS KERNEL - FULL MONOLITHIC BUILD (EXTENDED ARCHITECTURE)
  * =============================================================================
- * VERSION: 3.9.0-STABLE
+ * VERSION: 3.9.1-STABLE
  * ARCHITECTURE: x86 (i386)
  * DESCRIPTION: High-stability monolithic kernel. Acts as the central hub,
  * hooking into external modules (FAT16, Keyboard, IO, Installer) while
@@ -28,7 +28,7 @@
 /* ========================================================================== */
 
 #define KERNEL_NAME        "AaronOS"
-#define KERNEL_VERSION     "3.9.0-STABLE"
+#define KERNEL_VERSION     "3.9.1-STABLE"
 #define KERNEL_BUILD       "2026-04-15"
 
 /* VGA Hardware Memory Map boundaries */
