@@ -110,7 +110,7 @@
 /* ========================================================================== */
 
 /* CLI & Keyboard Hooks: Managed by keyboard.c, read by kernel.c */
-char input_buffer[256];             // Raw characters typed by user
+char input_buffer[256] = {0};        // Raw characters typed by user
 int input_ptr = 0;                  // Current position in the input buffer
 volatile int execute_flag = 0;      // Set to 1 when ENTER is pressed
 volatile int ctrl_c_flag = 0;       // Set to 1 when Ctrl+C is pressed
@@ -1113,6 +1113,13 @@ void kernel_main() {
     print("AaronOS> ");
     prompt_limit = current_col;
 
+    // Drain any stale serial input and wait a bit
+    for(volatile int i = 0; i < 10000; i++);
+    while (serial_received()) {
+        serial_getchar();
+        for(volatile int i = 0; i < 1000; i++);
+    }
+
     // Infinite idle loop
    /* Master Execution Loop */
     /* Master Loop - Force Net-Poll on every single tick */
@@ -1120,6 +1127,7 @@ void kernel_main() {
         // Check serial input
         while (serial_received()) {
             char c = serial_getchar();
+            for(volatile int i = 0; i < 100; i++); // Small delay
             if (c == '\r' || c == '\n') {
                 execute_flag = 1;
             } else if (c == '\b' || c == 0x7F) {
