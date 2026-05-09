@@ -1116,9 +1116,25 @@ void kernel_main() {
     // Infinite idle loop
    /* Master Execution Loop */
     /* Master Loop - Force Net-Poll on every single tick */
-    while (1) { 
+    while (1) {
+        // Check serial input
+        while (serial_received()) {
+            char c = serial_getchar();
+            if (c == '\r' || c == '\n') {
+                execute_flag = 1;
+            } else if (c == '\b' || c == 0x7F) {
+                if (input_ptr > 0) {
+                    input_ptr--;
+                    print("\b \b");
+                }
+            } else if (c >= 32 && input_ptr < 254) {
+                input_buffer[input_ptr++] = c;
+                serial_putchar(c);
+            }
+        }
+
         if (execute_flag == 1 ) {
-            process_shell(); 
+            process_shell();
             execute_flag = 0;
         }
 

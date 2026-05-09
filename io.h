@@ -56,4 +56,13 @@ static inline void init_serial() {
     outb(SERIAL_PORT + 1, 0);
 }
 
+static inline int serial_received() {
+    return inb(SERIAL_PORT + 5) & 0x01;
+}
+
+static inline char serial_getchar() {
+    while (!serial_received());
+    return inb(SERIAL_PORT);
+}
+
 #endif
