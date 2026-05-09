@@ -22,6 +22,7 @@
 #include <stdint.h>
 #include <stddef.h>
 #include "io.h"
+#include "commands.h"
 
 /* ========================================================================== */
 /* 1. KERNEL SYSTEM IDENTITY & MACROS                                         */
@@ -792,36 +793,12 @@ void run_matrix() {
 
 void print_help() {
     print_col("--- AaronOS Command List ---\n", COLOR_HELP);
-    print("gui       - Open the interactive TUI Explorer (Desktop)\n");
-    print("install   - Run HDD deployment\n");
-    print("reboot    - Warm restart\n");
-    print("shutdown  - ACPI Power off\n");
-    print("ver       - Show system version\n");
-    print("dmesg     - Show internal hardware boot log\n");
-    print("time      - Display hardware clock\n");
-    print("tz [city] - Set timezone (e.g. tz amsterdam)\n");
-    print("cls       - Clear terminal window\n");
-    print("panic     - Test kernel crash\n");
-    print("beep [f]  - Play tone (ex: beep 440)\n");
-    print("dir       - List disk contents\n");
-    print("cat [f]   - Read text file\n");
-    print("write [t] - Append text to disk\n");
-    print("touch [f] - Create an empty file\n");
-    print("rm [f]    - Delete a file\n");
-    print("rename    - Rename a file (syntax: rename old new)\n");
-    print("format    - Format the disk (creates FAT16 filesystem)\n");
-    print("edit      - Open text editor\n");
-    print("echo [t]  - Print text to screen\n");
-    print("cpu       - Show hardware vendor\n");
-    print("music     - Plays a bit of music\n");
-    print("siren     - Sounds a siren\n");
-    print("credits   - Show OS build information\n");
-    print("stats     - Show OS health and uptime\n");
-    print("rand      - Generate pseudo-random number\n");
-    print("matrix    - Enter the matrix\n");
-    print("color [h] - Change text color (hex, e.g. color 0A)\n");
-    print("calc      - Basic math (e.g. calc 5 + 10 or calc sin 90)\n");
-    print("ping      - This is just a test, but it sends a package.\n");
+    for (int i = 0; i < NUM_COMMANDS; i++) {
+        print(commands[i].name);
+        print(" - ");
+        print(commands[i].description);
+        print("\n");
+    }
     print("Use arrow keys to scroll up and down.\n");
 }
 
