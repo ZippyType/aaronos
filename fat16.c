@@ -12,35 +12,49 @@ extern void outb(uint16_t port, uint8_t val);
 extern uint8_t inb(uint16_t port);
 extern uint16_t inw(uint16_t port);
 
-void drive_wait() {
-    while ((inb(0x1F7) & 0x80) || !(inb(0x1F7) & 0x08));
+int drive_wait() {
+    int timeout = 0;
+    while ((inb(0x1F7) & 0x80) || !(inb(0x1F7) & 0x08)) {
+        timeout++;
+        if (timeout > 100000) return 0;
+    }
+    return 1;
 }
 
-void ata_read_sector(uint32_t lba, uint8_t* buffer) {
+int disk_ready() {
+    uint8_t status = inb(0x1F7);
+    return (status & 0x40) != 0;
+}
+
+int ata_read_sector(uint32_t lba, uint8_t* buffer) {
+    if (!disk_ready()) return 0;
     outb(0x1F6, 0xE0 | ((lba >> 24) & 0x0F));
     outb(0x1F2, 1);
     outb(0x1F3, (uint8_t)lba);
     outb(0x1F4, (uint8_t)(lba >> 8));
     outb(0x1F5, (uint8_t)(lba >> 16));
     outb(0x1F7, 0x20); 
-    drive_wait();
+    if (!drive_wait()) return 0;
     uint16_t* ptr = (uint16_t*)buffer;
     for (int i = 0; i < 256; i++) ptr[i] = inw(0x1F0);
+    return 1;
 }
 
-void ata_write_sector(uint32_t lba, const uint8_t* buffer) {
+int ata_write_sector(uint32_t lba, const uint8_t* buffer) {
+    if (!disk_ready()) return 0;
     outb(0x1F6, 0xE0 | ((lba >> 24) & 0x0F));
     outb(0x1F2, 1);
     outb(0x1F3, (uint8_t)lba);
     outb(0x1F4, (uint8_t)(lba >> 8));
     outb(0x1F5, (uint8_t)(lba >> 16));
     outb(0x1F7, 0x30); 
-    drive_wait();
+    if (!drive_wait()) return 0;
     uint16_t* ptr = (uint16_t*)buffer;
     for (int i = 0; i < 256; i++) {
         uint16_t data = ptr[i];
         asm volatile("outw %0, %1" : : "a"(data), "Nd"(0x1F0));
     }
+    return 1;
 }
 
 void format_name(char* in, char* out) {
@@ -68,8 +82,9 @@ void fat16_format_drive() {
 }
 
 void fat16_list_files() {
+    if (!disk_ready()) { print("Error: No disk detected.\n"); return; }
     uint8_t buf[512];
-    ata_read_sector(ROOT_SECTOR, buf);
+    if (!ata_read_sector(ROOT_SECTOR, buf)) { print("Error: Cannot read disk.\n"); return; }
     struct FAT16_DirEntry* entries = (struct FAT16_DirEntry*)buf;
     print("Files:\n");
     for (int i = 0; i < 16; i++) {
@@ -83,10 +98,11 @@ void fat16_list_files() {
 }
 
 void fat16_cat(char* name) {
+    if (!disk_ready()) { print("Error: No disk detected.\n"); return; }
     uint8_t buf[512];
     char target[8];
     format_name(name, target);
-    ata_read_sector(ROOT_SECTOR, buf);
+    if (!ata_read_sector(ROOT_SECTOR, buf)) { print("Error: Cannot read disk.\n"); return; }
     struct FAT16_DirEntry* entries = (struct FAT16_DirEntry*)buf;
     for (int i = 0; i < 16; i++) {
         int match = 1;
@@ -94,7 +110,7 @@ void fat16_cat(char* name) {
         if (match) {
             uint32_t sector = DATA_START_SECTOR + entries[i].first_cluster_low - 2;
             uint8_t data_buf[512];
-            ata_read_sector(sector, data_buf);
+            if (!ata_read_sector(sector, data_buf)) { print("Error: Cannot read file.\n"); return; }
             print((char*)data_buf); print("\n");
             return;
         }
@@ -103,74 +119,82 @@ void fat16_cat(char* name) {
 }
 
 void fat16_create_file(char* name) {
+    if (!disk_ready()) { print("Error: No disk detected.\n"); return; }
     uint8_t buf[512];
     char target[8];
     format_name(name, target);
-    ata_read_sector(ROOT_SECTOR, buf);
+    if (!ata_read_sector(ROOT_SECTOR, buf)) { print("Error: Cannot read disk.\n"); return; }
     struct FAT16_DirEntry* entries = (struct FAT16_DirEntry*)buf;
     for (int i = 0; i < 16; i++) {
         if (entries[i].filename[0] == 0 || entries[i].filename[0] == (char)0xE5) {
             for(int j=0; j<8; j++) entries[i].filename[j] = target[j];
             for(int j=0; j<3; j++) entries[i].extension[j] = "TXT"[j];
             entries[i].first_cluster_low = 2;
-            ata_write_sector(ROOT_SECTOR, buf);
+            if (!ata_write_sector(ROOT_SECTOR, buf)) { print("Error: Cannot write disk.\n"); return; }
             print("File created.\n");
             return;
         }
     }
+    print("Error: Directory full.\n");
 }
 
 void fat16_delete_file(char* name) {
+    if (!disk_ready()) { print("Error: No disk detected.\n"); return; }
     uint8_t buf[512];
     char target[8];
     format_name(name, target);
-    ata_read_sector(ROOT_SECTOR, buf);
+    if (!ata_read_sector(ROOT_SECTOR, buf)) { print("Error: Cannot read disk.\n"); return; }
     struct FAT16_DirEntry* e = (struct FAT16_DirEntry*)buf;
     for (int i = 0; i < 16; i++) {
         int m = 1;
         for(int j=0; j<8; j++) if(e[i].filename[j] != target[j]) m = 0;
         if (m) {
             e[i].filename[0] = (char)0xE5;
-            ata_write_sector(ROOT_SECTOR, buf);
+            if (!ata_write_sector(ROOT_SECTOR, buf)) { print("Error: Cannot write disk.\n"); return; }
             print("File deleted.\n");
             return;
         }
     }
+    print("File not found.\n");
 }
 
 void fat16_rename_file(char* old, char* newn) {
+    if (!disk_ready()) { print("Error: No disk detected.\n"); return; }
     uint8_t buf[512];
     char t1[8], t2[8];
     format_name(old, t1); format_name(newn, t2);
-    ata_read_sector(ROOT_SECTOR, buf);
+    if (!ata_read_sector(ROOT_SECTOR, buf)) { print("Error: Cannot read disk.\n"); return; }
     struct FAT16_DirEntry* e = (struct FAT16_DirEntry*)buf;
     for (int i = 0; i < 16; i++) {
         int m = 1;
         for(int j=0; j<8; j++) if(e[i].filename[j] != t1[j]) m = 0;
         if (m) {
             for(int j=0; j<8; j++) e[i].filename[j] = t2[j];
-            ata_write_sector(ROOT_SECTOR, buf);
+            if (!ata_write_sector(ROOT_SECTOR, buf)) { print("Error: Cannot write disk.\n"); return; }
             print("File renamed.\n");
             return;
         }
     }
+    print("File not found.\n");
 }
 
 void fat16_write_to_test(char* content) {
+    if (!disk_ready()) { print("Error: No disk detected.\n"); return; }
     uint8_t buf[512];
-    ata_read_sector(ROOT_SECTOR, buf);
+    if (!ata_read_sector(ROOT_SECTOR, buf)) { print("Error: Cannot read disk.\n"); return; }
     struct FAT16_DirEntry* entries = (struct FAT16_DirEntry*)buf;
     for (int i = 0; i < 16; i++) {
         if (entries[i].filename[0] == 0 || entries[i].filename[0] == (char)0xE5) {
             for(int j=0; j<8; j++) entries[i].filename[j] = "TEST    "[j];
             for(int j=0; j<3; j++) entries[i].extension[j] = "TXT"[j];
             entries[i].first_cluster_low = 2;
-            ata_write_sector(ROOT_SECTOR, buf);
+            if (!ata_write_sector(ROOT_SECTOR, buf)) { print("Error: Cannot write disk.\n"); return; }
             uint8_t data_buf[512] = {0};
             for(int j=0; content[j] && j<511; j++) data_buf[j] = content[j];
-            ata_write_sector(DATA_START_SECTOR, data_buf);
+            if (!ata_write_sector(DATA_START_SECTOR, data_buf)) { print("Error: Cannot write data.\n"); return; }
             print("Saved to TEST.TXT\n");
             return;
         }
     }
+    print("Error: Directory full.\n");
 }

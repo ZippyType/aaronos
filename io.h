@@ -36,4 +36,24 @@ static inline uint32_t inl(uint16_t port) {
     asm volatile ("inl %1, %0" : "=a"(ret) : "Nd"(port));
     return ret;
 }
+
+#define SERIAL_PORT 0x3F8
+
+static inline int serial_is_transmit_empty() {
+    return inb(SERIAL_PORT + 5) & 0x20;
+}
+
+static inline void serial_putchar(char c) {
+    while (!serial_is_transmit_empty());
+    outb(SERIAL_PORT, c);
+}
+
+static inline void init_serial() {
+    outb(SERIAL_PORT + 1, 0);
+    outb(SERIAL_PORT + 3, 0x80);
+    outb(SERIAL_PORT + 0, 115200 / 9600);
+    outb(SERIAL_PORT + 3, 0x03);
+    outb(SERIAL_PORT + 1, 0);
+}
+
 #endif

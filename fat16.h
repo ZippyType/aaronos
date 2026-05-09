@@ -51,5 +51,6 @@ void fat16_write_to_test(char* content);
 void fat16_create_file(char* name);
 void fat16_delete_file(char* name);
 void fat16_rename_file(char* oldname, char* newname);
+int disk_ready();
 
 #endif

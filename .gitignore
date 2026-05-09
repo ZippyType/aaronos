@@ -1,4 +1,6 @@
 *.iso
 *.o
 *.img
+*.log
+chat.json
 

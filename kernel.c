@@ -112,6 +112,7 @@
 char input_buffer[256];             // Raw characters typed by user
 int input_ptr = 0;                  // Current position in the input buffer
 volatile int execute_flag = 0;      // Set to 1 when ENTER is pressed
+volatile int ctrl_c_flag = 0;       // Set to 1 when Ctrl+C is pressed
 
 /* VGA Terminal State */
 // A massive 2D array storing both the character and its color data
@@ -605,8 +606,11 @@ void putchar_col(char c, uint8_t color) {
     refresh_screen();
 }
 
-void print(const char* str) { 
-    for (int i = 0; str[i]; i++) putchar_col(str[i], current_term_color); 
+void print(const char* str) {
+    for (int i = 0; str[i]; i++) {
+        putchar_col(str[i], current_term_color);
+        serial_putchar(str[i]);
+    }
 }
 
 void print_col(const char* str, uint8_t col) { 
@@ -762,16 +766,15 @@ void print_stats() {
 /* ========================================================================== */
 
 void show_credits() {
-    print_col("\n  _____                      ____   _____ \n", COLOR_HELP);
-    print_col(" |  _  | ___  ___  ___ ___  |    | |   __|\n", COLOR_HELP);
-    print_col(" |     || . ||  _|| . |   | |  |  ||__   |\n", COLOR_HELP);
-    print_col(" |__|__||_  ||_|  |___|_|_| |____/ |_____|\n", COLOR_HELP);
-    print_col("        |___|  BUILD: ", COLOR_HELP); 
-    print_col(KERNEL_BUILD, COLOR_HELP);
+    print_col("\n    ___                             ____  ____ \n", COLOR_HELP);
+    print_col("   /   |  ____ __________  ____    / __ \\/ ___|\n", COLOR_HELP);
+    print_col("  / /| | / __ `/ ___/ __ \\/ __ \\  / / / /\\___ \\\n", COLOR_HELP);
+    print_col(" / ___ |/ /_/ / /  / /_/ / / / / /  /_/ / ___/ /\n", COLOR_HELP);
+    print_col("/_/  |_|\\__,_/_/   \\____/_/ /_/  \\____/ |____/ \n", COLOR_HELP);
     print_col("\n\n", COLOR_DEFAULT);
     print(" Lead Developer: Aaron\n");
     print(" Kernel Version: "); print(KERNEL_VERSION); print("\n");
-    print(" Github: github.com/ZippyType/AaronOS \n");
+    print(" Github: github.com/ZippyType/AaronOS (please support it!) \n");
 }
 
 void run_matrix() {
@@ -806,6 +809,7 @@ void print_help() {
     print("touch [f] - Create an empty file\n");
     print("rm [f]    - Delete a file\n");
     print("rename    - Rename a file (syntax: rename old new)\n");
+    print("format    - Format the disk (creates FAT16 filesystem)\n");
     print("edit      - Open text editor\n");
     print("echo [t]  - Print text to screen\n");
     print("cpu       - Show hardware vendor\n");
@@ -823,6 +827,11 @@ void print_help() {
 
 /* Master Routing Logic. Fired when Execute_flag is active. */
 void process_shell() {
+    if (ctrl_c_flag) {
+        ctrl_c_flag = 0;
+        print("^C\n");
+        goto reset_prompt;
+    }
     print("\n");
     sys_stats.total_commands++;
 
@@ -887,6 +896,11 @@ void process_shell() {
         else if (kstrncmp(input_buffer, "rename ", 7) == 0) {
             char* args = &input_buffer[7]; char* space = kstrchr(args, ' ');
             if (space) { *space = '\0'; fat16_rename_file(args, space + 1); } else print("Syntax: rename [old] [new]");
+        }
+        else if (kstrcmp(input_buffer, "format") == 0) {
+            print("Formatting drive... ");
+            fat16_format_drive();
+            print("Done.\n");
         }
         
         // UTILITIES
@@ -972,9 +986,11 @@ void process_shell() {
     }
     
     // Reset buffer and prepare for next input
+reset_prompt:
     print("\nAaronOS> ");
     input_ptr = 0;
     execute_flag = 0;
+    ctrl_c_flag = 0;
     prompt_limit = current_col; // Lock backspace boundary
     update_cursor_relative();
 }
@@ -1085,6 +1101,7 @@ void kernel_main() {
     print_col("\n[ AaronOS Boot Sequence Initiated ]\n\n", COLOR_HELP);
 
     init_gdt(); log_boot("Global Descriptor Table (GDT) Configured");
+    init_serial(); log_boot("Serial Port (COM1) Initialized");
 
     /* 8259 PIC Remapping Magic Numbers */
     outb(0x20, 0x11); io_wait(); outb(0x21, 0x20); io_wait(); outb(0x21, 0x04); io_wait(); outb(0x21, 0x01); io_wait();

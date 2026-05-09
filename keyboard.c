@@ -16,6 +16,7 @@ extern void scroll_down();
 extern char input_buffer[256];
 extern int input_ptr;
 extern volatile int execute_flag;
+extern volatile int ctrl_c_flag;
 
 static int shift_active = 0;
 static int ctrl_active = 0;
@@ -56,10 +57,10 @@ void keyboard_handler_main() {
     if (scancode == 0x2A || scancode == 0x36) { shift_active = 1; goto finished; }
 
     /* Phase 3: THE INTERRUPTS */
-    /* CTRL+C = REBOOT */
-    if (ctrl_active && scancode == 0x2E) { 
-        print("\n[REBOOT] User triggered SIGINT. System restarting...\n");
-        sys_reboot();
+    /* CTRL+C = ABORT COMMAND */
+    if (ctrl_active && scancode == 0x2E) {
+        ctrl_c_flag = 1;
+        execute_flag = 1;
     }
 
     /* Arrow Keys = Scroll */
