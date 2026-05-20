@@ -17,6 +17,7 @@ extern char input_buffer[256];
 extern int input_ptr;
 extern volatile int execute_flag;
 extern volatile int ctrl_c_flag;
+extern volatile int keyboard_interrupts;
 
 static int shift_active = 0;
 static int ctrl_active = 0;
@@ -42,6 +43,7 @@ unsigned char kbd_shifted[128] = {
  * Scans the keyboard data port and updates kernel state.
  */
 void keyboard_handler_main() {
+    keyboard_interrupts++;
     uint8_t scancode = inb(0x60);
 
     /* Phase 1: Catch Releases */

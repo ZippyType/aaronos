@@ -110,10 +110,12 @@
 /* ========================================================================== */
 
 /* CLI & Keyboard Hooks: Managed by keyboard.c, read by kernel.c */
-char input_buffer[256];             // Raw characters typed by user
+char input_buffer[256] = {0};        // Raw characters typed by user
 int input_ptr = 0;                  // Current position in the input buffer
 volatile int execute_flag = 0;      // Set to 1 when ENTER is pressed
 volatile int ctrl_c_flag = 0;       // Set to 1 when Ctrl+C is pressed
+int serial_initialized = 0;         // Flag for serial init status
+volatile int keyboard_interrupts = 0; // Debug counter
 
 /* VGA Terminal State */
 // A massive 2D array storing both the character and its color data
@@ -610,7 +612,7 @@ void putchar_col(char c, uint8_t color) {
 void print(const char* str) {
     for (int i = 0; str[i]; i++) {
         putchar_col(str[i], current_term_color);
-        serial_putchar(str[i]);
+        if (serial_initialized && serial_is_transmit_empty()) serial_putchar(str[i]);
     }
 }
 
@@ -752,6 +754,7 @@ void print_stats() {
     print_col("\n--- AaronOS Engine Health ---\n", COLOR_HELP);
     print("Uptime Ticks:   "); itoa(timer_ticks, buf, 10); print(buf);
     print("\nCommands Run:   "); itoa(sys_stats.total_commands, buf, 10); print(buf);
+    print("\nKeyboard IRQ:   "); itoa(keyboard_interrupts, buf, 10); print(buf);
     print("\nSpeaker Status: "); print(sys_stats.speaker_state ? "ACTIVE" : "IDLE");
     print("\nColor Pallet:   0x"); itoa(current_term_color, buf, 16); print(buf);
     print("\nTerminal Size:  "); itoa(MAX_SCROLLBACK, buf, 10); print(buf); print(" lines capacity");
@@ -1074,11 +1077,13 @@ void pci_scan() {
 void kernel_main() {
     current_col = 0; current_row = 0; scroll_offset = 0; in_gui_mode = 0; boot_log_count = 0;
     clear_screen();
+    init_serial();
+    serial_initialized = 1;
     
     print_col("\n[ AaronOS Boot Sequence Initiated ]\n\n", COLOR_HELP);
 
     init_gdt(); log_boot("Global Descriptor Table (GDT) Configured");
-    init_serial(); log_boot("Serial Port (COM1) Initialized");
+    log_boot("Serial Port (COM1) Initialized");
 
     /* 8259 PIC Remapping Magic Numbers */
     outb(0x20, 0x11); io_wait(); outb(0x21, 0x20); io_wait(); outb(0x21, 0x04); io_wait(); outb(0x21, 0x01); io_wait();
@@ -1113,12 +1118,36 @@ void kernel_main() {
     print("AaronOS> ");
     prompt_limit = current_col;
 
+    // Drain any stale serial input and wait a bit
+    for(volatile int i = 0; i < 10000; i++);
+    while (serial_received()) {
+        serial_getchar();
+        for(volatile int i = 0; i < 1000; i++);
+    }
+
     // Infinite idle loop
    /* Master Execution Loop */
     /* Master Loop - Force Net-Poll on every single tick */
-    while (1) { 
+    while (1) {
+        // Check serial input
+        while (serial_received()) {
+            char c = serial_getchar();
+            for(volatile int i = 0; i < 100; i++); // Small delay
+            if (c == '\r' || c == '\n') {
+                execute_flag = 1;
+            } else if (c == '\b' || c == 0x7F) {
+                if (input_ptr > 0) {
+                    input_ptr--;
+                    print("\b \b");
+                }
+            } else if (c >= 32 && input_ptr < 254) {
+                input_buffer[input_ptr++] = c;
+                serial_putchar(c);
+            }
+        }
+
         if (execute_flag == 1 ) {
-            process_shell(); 
+            process_shell();
             execute_flag = 0;
         }
 
